@@ -10,7 +10,7 @@ intents.message_content = True  # Enable message content for server messages
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Llama Model setup
-model = OllamaLLM(model="llama3.2:3b")
+model = OllamaLLM(model="llama3.2:3b", base_url="http://127.0.0.1:11434")
 
 # Generate response using the Llama model
 def generate_response(prompt):
