@@ -10,7 +10,7 @@ intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True  # Enable message content for server messages
 intents.members = True  # Enable member join/leave events
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # Llama Model setup
 model = OllamaLLM(model="llama3.2:1b", base_url="http://127.0.0.1:11434")
@@ -158,7 +158,7 @@ async def poll(ctx, question: str, *, options: str):
         embed.add_field(name=f"Option {i}", value=option.strip(), inline=False)
     message = await ctx.send(embed=embed)
     reactions = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
-    for i in range(len(options)):
+    for i in range(len(options))
         await message.add_reaction(reactions[i])
 
 @bot.command(name="roulette")
