@@ -15,7 +15,7 @@ model = OllamaLLM(model="llama3.2:3b")
 # Generate response using the Llama model
 def generate_response(prompt):
     try:
-        response = model.invoke({"prompt": prompt})
+        response = model.invoke(prompt)
         return response
     except Exception as e:
         return f"Oops, something went wrong: {e}"
