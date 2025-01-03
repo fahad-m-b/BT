@@ -1,17 +1,24 @@
 import discord
 from discord.ext import commands
-import random
 import requests
 from langchain_ollama import OllamaLLM  # Llama integration
 
 # Set up bot with `!` prefix
 intents = discord.Intents.default()
 intents.messages = True
-intents.guilds = True
+intents.message_content = True  # Enable message content for server messages
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Llama Model setup
 model = OllamaLLM(model="llama3.2:3b")
+
+# Generate response using the Llama model
+def generate_response(prompt):
+    try:
+        response = model.invoke({"prompt": prompt})
+        return response
+    except Exception as e:
+        return f"Oops, something went wrong: {e}"
 
 # MangaDex API functions
 def search_manga(title):
@@ -49,7 +56,7 @@ async def commands_list(ctx):
     - `!help`: Show this help message.
     - `!origin`: Learn about BT's origin.
     - `!manga [title]`: Search for a manga or get a random recommendation if no title is provided.
-    - `!joke`: Hear a random joke.
+    - `!joke`: Hear a dynamic, AI-generated joke.
     - `!roulette [choices]`: Choose a random option from a list of choices (comma-separated).
     - `hey bt [message]`: Chat with BT using AI.
     """
@@ -74,13 +81,10 @@ async def manga(ctx, *, title=None):
 
 @bot.command(name="joke")
 async def joke(ctx):
-    """Tell a random joke."""
-    jokes = [
-        "Why don't skeletons fight each other? They don't have the guts!",
-        "Why did the scarecrow win an award? He was outstanding in his field!",
-        "I'm reading a book on anti-gravity. It's impossible to put down!",
-    ]
-    await ctx.send(random.choice(jokes))
+    """Generate a random joke using AI."""
+    prompt = "Tell me a creative and funny joke."
+    joke = generate_response(prompt)
+    await ctx.send(joke)
 
 @bot.command(name="roulette")
 async def roulette(ctx, *, choices=None):
@@ -101,15 +105,10 @@ async def on_message(message):
     # Check if the message starts with "hey bt"
     if message.content.lower().startswith("hey bt"):
         query = message.content[len("hey bt"):].strip()
+        response = generate_response(query)
+        await message.channel.send(response)
 
-        try:
-            # Query the Llama model
-            response = model.invoke(query)
-            await message.channel.send(response)
-        except Exception as e:
-            await message.channel.send(f"Oops, something went wrong: {e}")
-
-    # Allow other commands to process
+    # Allow command processing in servers
     await bot.process_commands(message)
 
 @bot.event
@@ -117,4 +116,4 @@ async def on_ready():
     print(f"Bot is online and logged in as {bot.user.name}")
 
 # Run the bot
-bot.run("MTIxOTU3NjIwNjgxOTg1MjI5OA.GpOWNj.61Il9oMhbPD8SkE9dCAs9JafXRxrcKuX-j3r1k")
+bot.run("YOUR_DISCORD_BOT_TOKEN")
