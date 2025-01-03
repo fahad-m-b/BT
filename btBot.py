@@ -54,7 +54,27 @@ def random_manga():
     else:
         return "Failed to contact MangaDex."
 
-# Commands
+# Custom Help Command
+@bot.command(name="help")
+async def custom_help(ctx):
+    """Custom help message."""
+    help_message = """
+    **BT Commands:**
+    - `!chat [message]`: Answer questions with personality.
+    - `!commands`: Show all available commands.
+    - `!help`: Show this help message.
+    - `!meme`: Fetch a random meme from Reddit.
+    - `!origin`: Learn about BT's origin.
+    - `!personality [funny/serious/neutral]`: Set the bot's personality.
+    - `!poll [question] [option1, option2, ...]`: Create a poll.
+    - `!remind [time] [message]`: Set a reminder.
+    - `!roulette [choices]`: Choose a random option from your list.
+    - `!rps [rock/paper/scissors]`: Play Rock-Paper-Scissors.
+    
+    Type `!command` for more information on a specific command!
+    """
+    await ctx.send(help_message)
+
 @bot.command(name="commands")
 async def commands_list(ctx):
     """Show all available commands."""
@@ -196,14 +216,15 @@ async def on_message(message):
 
 @bot.event
 async def on_ready():
-    activities = [
-        discord.Game("with AI algorithms"),
+    status_themes = [
+        discord.Game("watching over the server like Batman"),
+        discord.Game("beating one of the members in chess"),
         discord.Game("thinking about memes"),
-        discord.Game("Wachting over the Server"),
-        discord.Game("beating Al-Jbali"),
-        discord.Streaming(name="live coding", url="https://twitch.tv/example"),
+        discord.Game("running AI calculations"),
+        discord.Game("watching the chaos unfold"),
     ]
-    await bot.change_presence(activity=random.choice(activities))
+    chosen_status = random.choice(status_themes)
+    await bot.change_presence(activity=chosen_status)
     print(f"Bot is online and logged in as {bot.user.name}")
 
 # Run the bot
