@@ -158,7 +158,7 @@ async def poll(ctx, question: str, *, options: str):
         embed.add_field(name=f"Option {i}", value=option.strip(), inline=False)
     message = await ctx.send(embed=embed)
     reactions = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
-    for i in range(len(options))
+    for i in range(len(options)):
         await message.add_reaction(reactions[i])
 
 @bot.command(name="roulette")
