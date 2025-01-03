@@ -114,7 +114,7 @@ async def remind(ctx, time: int, *, message: str):
     """Set a reminder."""
     await ctx.send(f"Okay! I'll remind you in {time} seconds.")
     await asyncio.sleep(time)
-    await ctx.send(f"Reminder for {ctx.author.metion}: {message}")
+    await ctx.send(f"Reminder for {ctx.author.mention}: {message}")
 
 @bot.event
 async def on_member_join(member):
