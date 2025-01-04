@@ -3,6 +3,8 @@ from discord.ext import commands
 import requests
 import random
 import asyncio
+import sqlite3
+import json
 from langchain_ollama import OllamaLLM  # Llama integration
 
 # Set up bot with `!` prefix
@@ -15,14 +17,46 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 # Llama Model setup
 model = OllamaLLM(model="llama3.2:1b", base_url="http://127.0.0.1:11434")
 
-# Store user preferences and conversation history
-user_preferences = {}
-conversation_history = {}
+# SQLite database setup
+conn = sqlite3.connect("bt_memory.db")
+cursor = conn.cursor()
 
-# Generate response using the Llama model
-def generate_response(prompt):
+# Create a table for storing user data
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS user_memory (
+    user_id TEXT PRIMARY KEY,
+    chat_history TEXT
+)
+""")
+conn.commit()
+
+# Functions for user memory management
+def get_user_history(user_id):
+    cursor.execute("SELECT chat_history FROM user_memory WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    if row:
+        return json.loads(row[0])  # Convert JSON string back to Python list
+    return []
+
+def save_user_history(user_id, history):
+    history_json = json.dumps(history)  # Convert Python list to JSON string
+    cursor.execute("INSERT OR REPLACE INTO user_memory (user_id, chat_history) VALUES (?, ?)",
+                   (user_id, history_json))
+    conn.commit()
+
+def add_to_history(user_id, message, response):
+    history = get_user_history(user_id)
+    history.append({"message": message, "response": response})  # Add new message-response pair
+    save_user_history(user_id, history)
+
+# Generate response using the Llama model with memory
+def generate_response_with_memory(user_id, prompt):
+    history = get_user_history(user_id)
+    context = "\n".join([f"User: {h['message']}\nBT: {h['response']}" for h in history[-5:]])  # Limit to last 5 interactions
+    full_prompt = f"{context}\nUser: {prompt}\nBT:"
     try:
-        response = model.invoke(prompt)
+        response = model.invoke(full_prompt)
+        add_to_history(user_id, prompt, response)
         return response
     except Exception as e:
         return f"Oops, something went wrong: {e}"
@@ -112,7 +146,7 @@ async def meme(ctx):
 @bot.command(name="remind")
 async def remind(ctx, time: int, *, message: str):
     """Set a reminder."""
-    await ctx.send(f"Okay! I'll remind you in {time} seconds.")
+    await ctx.send(f"Okay! I'll remind you in {time} seconds, {ctx.author.mention}.")
     await asyncio.sleep(time)
     await ctx.send(f"Reminder for {ctx.author.mention}: {message}")
 
@@ -189,7 +223,7 @@ async def chat(ctx, *, question: str):
     elif mode == "serious":
         await ctx.send(f"That's a deep question, {ctx.author.name}. Let me think carefully.")
     else:
-        response = generate_response(question)
+        response = generate_response_with_memory(ctx.author.id, question)
         await ctx.send(response)
 
 @bot.event
@@ -208,7 +242,7 @@ async def on_message(message):
     # Check if the message starts with "hey bt"
     if message.content.lower().startswith("hey bt"):
         query = message.content[len("hey bt"):].strip()
-        response = generate_response(query)
+        response = generate_response_with_memory(message.author.id, query)
         await message.channel.send(response)
 
     # Allow command processing in servers
@@ -217,8 +251,8 @@ async def on_message(message):
 @bot.event
 async def on_ready():
     status_themes = [
-        discord.Game("watching over the server like Batman"),
-        discord.Game("beating one of the members in chess"),
+        discord.Game("watching over the server"),
+        discord.Game("beating Al-Jbali"),
         discord.Game("thinking about memes"),
         discord.Game("running AI calculations"),
         discord.Game("watching the chaos unfold"),
