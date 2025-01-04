@@ -231,7 +231,7 @@ async def on_message(message):
     if message.author.bot:
         return  # Ignore messages from bots
 
-    # Ignore commands to prevent duplicate responses
+    # Skip further processing if the message is a command
     if message.content.startswith("!"):
         await bot.process_commands(message)
         return
@@ -244,11 +244,12 @@ async def on_message(message):
     elif "angry" in message.content.lower():
         await message.add_reaction("😡")
 
-    # Check if the message starts with "hey bt"
+    # Handle "hey bt" for AI responses
     if message.content.lower().startswith("hey bt"):
         query = message.content[len("hey bt"):].strip()
         response = generate_response_with_memory(message.author.id, query)
         await message.channel.send(response)
+
     # Allow command processing in servers
     await bot.process_commands(message)
 
