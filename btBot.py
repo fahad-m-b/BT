@@ -49,26 +49,25 @@ def add_to_history(user_id, message, response):
     history.append({"message": message, "response": response})  # Add new message-response pair
     save_user_history(user_id, history)
 
-# Generate response using the Llama model with memory
 def generate_response_with_memory(user_id, prompt):
     # Retrieve user's chat history
     history = get_user_history(user_id)
 
-    # Format the context for the model (last 5 interactions)
-    context = "\n".join([f"User: {h['message']}\nBT: {h['response']}" for h in history[-5:]])
+    # Format the recent context for the model
+    context = "\n".join([f"User: {h['message']}\nBT: {h['response']}" for h in history[-5:]])  # Last 5 interactions
 
-    # Define a clear and simple full prompt for the model
-    full_prompt = f"You are BT, a friendly and intelligent chatbot that learns from previous conversations.\n" \
-                  f"Use the context of prior interactions to respond naturally and helpfully.\n\n" \
-                  f"{context}\nUser: {prompt}\nBT:"
+    # Refined prompt with shared interests
+    full_prompt = (
+        "You are BT, a fun and interactive chatbot. You know that the user and their friends love video games, anime, "
+        "and memes. You enjoy teasing them playfully about these topics while staying friendly and approachable.\n\n"
+        f"Prior context:\n{context}\nUser: {prompt}\nBT:"
+    )
 
     try:
-        # Invoke the Llama model with the formatted prompt
-        response = model.invoke(full_prompt).strip()  # Remove extra spaces or newlines
-
-        # Save the interaction to the user's memory
+        # Generate response using the model
+        response = model.invoke(full_prompt).strip()
+        # Add interaction to memory
         add_to_history(user_id, prompt, response)
-        
         return response
     except Exception as e:
         return f"Oops, something went wrong: {e}"
@@ -100,6 +99,39 @@ def random_manga():
     else:
         return "Failed to contact MangaDex."
 
+# Joke Command with Dynamic Generation
+@bot.command(name="joke")
+async def joke(ctx):
+    """Generate a dynamic joke using the Llama model."""
+    prompt = (
+        "You are a humorous bot. Generate a funny joke about one of these topics: gaming, anime, or memes. "
+        "Make it short, creative, and easy to understand."
+    )
+    try:
+        joke = model.invoke(prompt).strip()
+        await ctx.send(joke)
+    except Exception as e:
+        await ctx.send(f"Oops, something went wrong: {e}")
+
+# Meme Command with Dynamic Captions
+@bot.command(name="meme")
+async def meme(ctx):
+    """Generate a meme caption and fetch a random meme image."""
+    # Generate a dynamic meme caption
+    prompt = (
+        "You are a witty bot. Generate a funny and creative meme caption. It can be about gaming, anime, or internet culture."
+    )
+    try:
+        caption = model.invoke(prompt).strip()
+        response = requests.get("https://meme-api.herokuapp.com/gimme")
+        if response.status_code == 200:
+            meme = response.json()
+            await ctx.send(f"{caption}\n{meme['url']}")
+        else:
+            await ctx.send(f"Here's your meme caption: {caption}\n(Sorry, no image available right now.)")
+    except Exception as e:
+        await ctx.send(f"Oops, something went wrong: {e}")
+
 # Custom Help Command
 @bot.command(name="help")
 async def custom_help(ctx):
@@ -116,6 +148,7 @@ async def custom_help(ctx):
     - `!remind [time] [message]`: Set a reminder.
     - `!roulette [choices]`: Choose a random option from your list.
     - `!rps [rock/paper/scissors]`: Play Rock-Paper-Scissors.
+    - `!joke`: Hear a dynamic AI-generated joke.
     
     Type `!command` for more information on a specific command!
     """
@@ -134,6 +167,7 @@ async def commands_list(ctx):
     - `!poll [question] [option1, option2, ...]`: Create a poll.
     - `!roulette [choices]`: Choose a random option from a list of choices.
     - `!personality [funny/serious/neutral]`: Set my personality.
+    - `!joke`: Hear a dynamic AI-generated joke.
     - `hey bt [message]`: Chat with BT using AI.
     """
     await ctx.send(commands_list)
@@ -144,16 +178,6 @@ async def origin(ctx):
     await ctx.send(
         "I am BT-7274, a Vanguard-class Titan from *Titanfall 2*. I'm back to assist and have some fun with you!"
     )
-
-@bot.command(name="meme")
-async def meme(ctx):
-    """Fetch a random meme from Reddit."""
-    response = requests.get("https://meme-api.herokuapp.com/gimme")
-    if response.status_code == 200:
-        meme = response.json()
-        await ctx.send(meme["url"])
-    else:
-        await ctx.send("Couldn't fetch a meme right now. Try again later!")
 
 @bot.command(name="remind")
 async def remind(ctx, time: int, *, message: str):
