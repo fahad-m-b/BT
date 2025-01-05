@@ -51,12 +51,24 @@ def add_to_history(user_id, message, response):
 
 # Generate response using the Llama model with memory
 def generate_response_with_memory(user_id, prompt):
+    # Retrieve user's chat history
     history = get_user_history(user_id)
-    context = "\n".join([f"User: {h['message']}\nBT: {h['response']}" for h in history[-5:]])  # Limit to last 5 interactions
-    full_prompt = f"{context}\nUser: {prompt}\nBT:"
+
+    # Format the context for the model (last 5 interactions)
+    context = "\n".join([f"User: {h['message']}\nBT: {h['response']}" for h in history[-5:]])
+
+    # Define a clear and simple full prompt for the model
+    full_prompt = f"You are BT, a friendly and intelligent chatbot that learns from previous conversations.\n" \
+                  f"Use the context of prior interactions to respond naturally and helpfully.\n\n" \
+                  f"{context}\nUser: {prompt}\nBT:"
+
     try:
-        response = model.invoke(full_prompt)
+        # Invoke the Llama model with the formatted prompt
+        response = model.invoke(full_prompt).strip()  # Remove extra spaces or newlines
+
+        # Save the interaction to the user's memory
         add_to_history(user_id, prompt, response)
+        
         return response
     except Exception as e:
         return f"Oops, something went wrong: {e}"
