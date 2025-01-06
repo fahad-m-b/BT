@@ -9,7 +9,7 @@ from langchain_ollama import OllamaLLM  # Llama integration
 import os
 
 # Bot setup
-BOT_TOKEN = os.getenv("MTIxOTU3NjIwNjgxOTg1MjI5OA.GBNxwc.cpppEOGn-rWQEG7Hc0nylsvQ7ROlOcIs2VFbcI")
+BOT_TOKEN = ("MTIxOTU3NjIwNjgxOTg1MjI5OA.GBNxwc.cpppEOGn-rWQEG7Hc0nylsvQ7ROlOcIs2VFbcI")
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
