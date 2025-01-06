@@ -1,17 +1,19 @@
 import discord
-from discord.ext import commands
-import requests
-import random
+from discord.ext import commands, tasks
 import asyncio
+import random
 import sqlite3
 import json
+from datetime import datetime, timedelta
 from langchain_ollama import OllamaLLM  # Llama integration
+import os
 
-# Set up bot with `!` prefix
+# Bot setup
+BOT_TOKEN = os.getenv("MTIxOTU3NjIwNjgxOTg1MjI5OA.GBNxwc.cpppEOGn-rWQEG7Hc0nylsvQ7ROlOcIs2VFbcI")
 intents = discord.Intents.default()
 intents.messages = True
-intents.message_content = True  # Enable message content for server messages
-intents.members = True  # Enable member join/leave events
+intents.message_content = True
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # Llama Model setup
@@ -21,163 +23,79 @@ model = OllamaLLM(model="llama3.2:1b", base_url="http://127.0.0.1:11434")
 conn = sqlite3.connect("bt_memory.db")
 cursor = conn.cursor()
 
-# Create a table for storing user data
+# Create tables for persistent session data
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS user_memory (
     user_id TEXT PRIMARY KEY,
     chat_history TEXT
 )
 """)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS session_preferences (
+    user_id TEXT PRIMARY KEY,
+    timeout INTEGER DEFAULT 5
+)
+""")
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS group_sessions (
+    channel_id INTEGER PRIMARY KEY,
+    active BOOLEAN DEFAULT 1
+)
+""")
 conn.commit()
 
-# Functions for user memory management
-def get_user_history(user_id):
-    cursor.execute("SELECT chat_history FROM user_memory WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    if row:
-        return json.loads(row[0])  # Convert JSON string back to Python list
-    return []
+# Active chat sessions
+active_sessions = {}  # {channel_id: {"users": [user_id, ...], "last_active": timestamp, "timeout": minutes}}
 
-def save_user_history(user_id, history):
-    history_json = json.dumps(history)  # Convert Python list to JSON string
-    cursor.execute("INSERT OR REPLACE INTO user_memory (user_id, chat_history) VALUES (?, ?)",
-                   (user_id, history_json))
+# Default session timeout in minutes
+DEFAULT_TIMEOUT = 5
+
+# =======================
+# Helper Functions
+# =======================
+
+def get_user_timeout(user_id):
+    """Retrieve a user's custom timeout from the database."""
+    cursor.execute("SELECT timeout FROM session_preferences WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    return row[0] if row else DEFAULT_TIMEOUT
+
+def set_user_timeout(user_id, timeout):
+    """Save a user's custom timeout to the database."""
+    cursor.execute("""
+    INSERT OR REPLACE INTO session_preferences (user_id, timeout)
+    VALUES (?, ?)
+    """, (user_id, timeout))
     conn.commit()
 
-def add_to_history(user_id, message, response):
-    history = get_user_history(user_id)
-    history.append({"message": message, "response": response})  # Add new message-response pair
-    save_user_history(user_id, history)
-
 def generate_response_with_memory(user_id, prompt):
-    # Retrieve user's chat history
-    history = get_user_history(user_id)
+    """Generate a response using user-specific chat history."""
+    cursor.execute("SELECT chat_history FROM user_memory WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    history = json.loads(row[0]) if row else []
 
-    # Format the recent context for the model
-    context = "\n".join([f"User: {h['message']}\nBT: {h['response']}" for h in history[-5:]])  # Last 5 interactions
-
-    # Refined prompt with shared interests
+    context = "\n".join([f"User: {h['message']}\nBT: {h['response']}" for h in history[-5:]])
     full_prompt = (
         "You are BT, a fun and interactive chatbot. You know that the user and their friends love video games, anime, "
-        "and memes. You enjoy teasing them playfully about these topics while staying friendly and approachable.\n\n"
+        "and memes. You enjoy teasing them playfully while staying friendly and approachable.\n\n"
         f"Prior context:\n{context}\nUser: {prompt}\nBT:"
     )
 
     try:
-        # Generate response using the model
         response = model.invoke(full_prompt).strip()
-        # Add interaction to memory
-        add_to_history(user_id, prompt, response)
+        history.append({"message": prompt, "response": response})
+        cursor.execute("""
+        INSERT OR REPLACE INTO user_memory (user_id, chat_history)
+        VALUES (?, ?)
+        """, (user_id, json.dumps(history)))
+        conn.commit()
         return response
     except Exception as e:
         return f"Oops, something went wrong: {e}"
 
-# MangaDex API functions
-def search_manga(title):
-    url = f"https://api.mangadex.org/manga?title={title}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        results = response.json().get("data", [])
-        if results:
-            manga = results[0]
-            manga_title = manga["attributes"]["title"]["en"]
-            manga_url = f"https://mangadex.org/title/{manga['id']}"
-            return f"Found: [{manga_title}]({manga_url})"
-        else:
-            return "No manga found with that title."
-    else:
-        return "Failed to contact MangaDex."
-
-def random_manga():
-    url = "https://api.mangadex.org/manga?limit=1&offset=0"
-    response = requests.get(url)
-    if response.status_code == 200:
-        manga = response.json().get("data", [])[0]
-        manga_title = manga["attributes"]["title"]["en"]
-        manga_url = f"https://mangadex.org/title/{manga['id']}"
-        return f"Random Manga: [{manga_title}]({manga_url})"
-    else:
-        return "Failed to contact MangaDex."
-
-# Joke Command with Dynamic Generation
-@bot.command(name="joke")
-async def joke(ctx):
-    """Generate a dynamic joke using the Llama model."""
-    prompt = (
-        "You are a humorous bot. Generate a funny joke about one of these topics: gaming, anime, or memes. "
-        "Make it short, creative, and easy to understand."
-    )
-    try:
-        joke = model.invoke(prompt).strip()
-        await ctx.send(joke)
-    except Exception as e:
-        await ctx.send(f"Oops, something went wrong: {e}")
-
-# Meme Command with Dynamic Captions
-@bot.command(name="meme")
-async def meme(ctx):
-    """Generate a meme caption and fetch a random meme image."""
-    # Generate a dynamic meme caption
-    prompt = (
-        "You are a witty bot. Generate a funny and creative meme caption. It can be about gaming, anime, or internet culture."
-    )
-    try:
-        caption = model.invoke(prompt).strip()
-        response = requests.get("https://meme-api.herokuapp.com/gimme")
-        if response.status_code == 200:
-            meme = response.json()
-            await ctx.send(f"{caption}\n{meme['url']}")
-        else:
-            await ctx.send(f"Here's your meme caption: {caption}\n(Sorry, no image available right now.)")
-    except Exception as e:
-        await ctx.send(f"Oops, something went wrong: {e}")
-
-# Custom Help Command
-@bot.command(name="help")
-async def custom_help(ctx):
-    """Custom help message."""
-    help_message = """
-    **BT Commands:**
-    - `!chat [message]`: Answer questions with personality.
-    - `!commands`: Show all available commands.
-    - `!help`: Show this help message.
-    - `!meme`: Fetch a random meme from Reddit.
-    - `!origin`: Learn about BT's origin.
-    - `!personality [funny/serious/neutral]`: Set the bot's personality.
-    - `!poll [question] [option1, option2, ...]`: Create a poll.
-    - `!remind [time] [message]`: Set a reminder.
-    - `!roulette [choices]`: Choose a random option from your list.
-    - `!rps [rock/paper/scissors]`: Play Rock-Paper-Scissors.
-    - `!joke`: Hear a dynamic AI-generated joke.
-    
-    Type `!command` for more information on a specific command!
-    """
-    await ctx.send(help_message)
-
-@bot.command(name="commands")
-async def commands_list(ctx):
-    """Show all available commands."""
-    commands_list = """
-    **Available Commands**:
-    - `!help`: Show this help message.
-    - `!origin`: Learn about BT's origin.
-    - `!meme`: Get a random meme.
-    - `!remind [time] [message]`: Set a reminder.
-    - `!rps [rock/paper/scissors]`: Play Rock-Paper-Scissors.
-    - `!poll [question] [option1, option2, ...]`: Create a poll.
-    - `!roulette [choices]`: Choose a random option from a list of choices.
-    - `!personality [funny/serious/neutral]`: Set my personality.
-    - `!joke`: Hear a dynamic AI-generated joke.
-    - `hey bt [message]`: Chat with BT using AI.
-    """
-    await ctx.send(commands_list)
-
-@bot.command(name="origin")
-async def origin(ctx):
-    """Learn about BT's origin."""
-    await ctx.send(
-        "I am BT-7274, a Vanguard-class Titan from *Titanfall 2*. I'm back to assist and have some fun with you!"
-    )
+# =======================
+# Commands
+# =======================
 
 @bot.command(name="remind")
 async def remind(ctx, time: int, *, message: str):
@@ -185,18 +103,6 @@ async def remind(ctx, time: int, *, message: str):
     await ctx.send(f"Okay! I'll remind you in {time} seconds, {ctx.author.mention}.")
     await asyncio.sleep(time)
     await ctx.send(f"Reminder for {ctx.author.mention}: {message}")
-
-@bot.event
-async def on_member_join(member):
-    channel = discord.utils.get(member.guild.channels, name="general")  # Replace 'general' with your welcome channel name
-    if channel:
-        await channel.send(f"Welcome {member.mention} to {member.guild.name}!")
-
-@bot.event
-async def on_member_remove(member):
-    channel = discord.utils.get(member.guild.channels, name="general")  # Replace 'general' with your goodbye channel name
-    if channel:
-        await channel.send(f"Goodbye {member.mention}. We'll miss you!")
 
 @bot.command(name="rps")
 async def rps(ctx, choice: str):
@@ -234,73 +140,135 @@ async def poll(ctx, question: str, *, options: str):
 @bot.command(name="roulette")
 async def roulette(ctx, *, input: str):
     """Choose a random option from your list."""
-    if "list of games" in input.lower():
-        options = input.split("list of games ")[1].split(",")
-    elif "character from marvel rival" in input.lower():
-        options = ["Iron Man", "Spider-Man", "Hulk", "Captain Marvel", "Thanos", "Doctor Strange"]
-    else:
-        options = input.split(",")
+    options = input.split(",")
     choice = random.choice(options).strip()
     await ctx.send(f"The roulette chose: {choice}!")
 
-@bot.command(name="personality")
-async def set_personality(ctx, mode: str):
-    """Set the bot's personality."""
-    global user_preferences
-    user_preferences[ctx.author.id] = mode.lower()
-    await ctx.send(f"Got it, {ctx.author.name}. I'll chat with you in {mode} mode.")
+@bot.command(name="meme")
+async def meme(ctx):
+    """Generate a meme caption and fetch a random meme image."""
+    prompt = "You are a witty bot. Generate a funny and creative meme caption about gaming, anime, or memes."
+    try:
+        caption = model.invoke(prompt).strip()
+        response = requests.get("https://meme-api.herokuapp.com/gimme")
+        if response.status_code == 200:
+            meme = response.json()
+            await ctx.send(f"{caption}\n{meme['url']}")
+        else:
+            await ctx.send(f"{caption}\n(Sorry, no meme available at the moment.)")
+    except Exception as e:
+        await ctx.send(f"Oops, something went wrong: {e}")
 
-@bot.command(name="chat")
-async def chat(ctx, *, question: str):
-    """Answer questions with personality."""
-    mode = user_preferences.get(ctx.author.id, "neutral")
-    if mode == "funny":
-        await ctx.send(f"Why did the chicken cross the road? To answer your question, {ctx.author.name}! 😂")
-    elif mode == "serious":
-        await ctx.send(f"That's a deep question, {ctx.author.name}. Let me think carefully.")
-    else:
-        response = generate_response_with_memory(ctx.author.id, question)
-        await ctx.send(response)
+@bot.command(name="joke")
+async def joke(ctx):
+    """Generate a funny joke."""
+    prompt = "You are a humorous bot. Generate a funny joke about gaming, anime, or memes."
+    try:
+        joke = model.invoke(prompt).strip()
+        await ctx.send(joke)
+    except Exception as e:
+        await ctx.send(f"Oops, something went wrong: {e}")
+
+@bot.command(name="help")
+async def custom_help(ctx):
+    """Display the bot's help message with detailed descriptions of each command."""
+    help_message = """
+    **BT Commands:**
+    - **Chat Commands**:
+      - `hey bt`: Start a personal chat session with BT.
+      - `bye bt`: End your chat session with BT.
+    - **Group Chat Commands**:
+      - `!start_chat`: Start a group chat in the current channel.
+      - `!end_chat`: End the group chat in the current channel.
+    - **Games and Fun**:
+      - `!rps [rock/paper/scissors]`: Play Rock-Paper-Scissors.
+      - `!poll [question] [option1, option2, ...]`: Create a poll.
+      - `!roulette [options]`: Choose a random option.
+      - `!meme`: Generate a funny meme caption and fetch a random meme.
+      - `!joke`: Hear a funny AI-generated joke.
+    - **Utilities**:
+      - `!remind [time in seconds] [message]`: Set a reminder.
+      - `!set_timeout [minutes]`: Customize your chat session timeout.
+    - **Help**:
+      - `!help`: Display this help message.
+    """
+    await ctx.send(help_message)
+
+# =======================
+# Chat Logic and Event Handlers
+# =======================
 
 @bot.event
 async def on_message(message):
+    """Handle user messages."""
     if message.author.bot:
         return  # Ignore messages from bots
 
-    # Skip further processing if the message is a command
-    if message.content.startswith("!"):
-        await bot.process_commands(message)
+    user_id = message.author.id
+    channel_id = message.channel.id
+    content = message.content.lower()
+
+    # If "hey bt" is mentioned, add user to group session
+    if content.startswith("hey bt"):
+        if channel_id in active_sessions:
+            if user_id not in active_sessions[channel_id]["users"]:
+                active_sessions[channel_id]["users"].append(user_id)
+                await message.channel.send(f"{message.author.name} has joined the group chat!")
+        else:
+            await message.channel.send("No active group chat session. Say `!start_chat` to begin one.")
         return
 
-    # Add reactions based on message content
-    if "happy" in message.content.lower():
-        await message.add_reaction("😊")
-    elif "sad" in message.content.lower():
-        await message.add_reaction("😢")
-    elif "angry" in message.content.lower():
-        await message.add_reaction("😡")
+    # If user says "bye bt", remove them from the session
+    if content == "bye bt":
+        if channel_id in active_sessions and user_id in active_sessions[channel_id]["users"]:
+            active_sessions[channel_id]["users"].remove(user_id)
+            await message.channel.send(f"{message.author.name} has left the group chat!")
+            if not active_sessions[channel_id]["users"]:
+                del active_sessions[channel_id]
+                cursor.execute("DELETE FROM group_sessions WHERE channel_id = ?", (channel_id,))
+                conn.commit()
+        else:
+            await message.channel.send("You're not part of any active chat session.")
+        return
 
-    # Handle "hey bt" for AI responses
-    if message.content.lower().startswith("hey bt"):
-        query = message.content[len("hey bt"):].strip()
-        response = generate_response_with_memory(message.author.id, query)
+    # Process messages for active group chat users
+    if channel_id in active_sessions and user_id in active_sessions[channel_id]["users"]:
+        active_sessions[channel_id]["last_active"] = datetime.now()
+        response = generate_response_with_memory(user_id, message.content)
         await message.channel.send(response)
+        return
 
-    # Allow command processing in servers
+    # Process commands normally
     await bot.process_commands(message)
+
+@tasks.loop(seconds=60)
+async def check_inactive_sessions():
+    """Automatically end group chat sessions after inactivity."""
+    now = datetime.now()
+    for channel_id, session in list(active_sessions.items()):
+        timeout = session["timeout"]
+        last_active = session["last_active"]
+
+        if now - last_active > timedelta(minutes=timeout):
+            # End the session
+            del active_sessions[channel_id]
+            cursor.execute("DELETE FROM group_sessions WHERE channel_id = ?", (channel_id,))
+            conn.commit()
+
+            channel = bot.get_channel(channel_id)
+            if channel:
+                await channel.send("Group chat session ended due to inactivity. Say `!start_chat` to start a new session.")
 
 @bot.event
 async def on_ready():
-    status_themes = [
-        discord.Game("watching over the server"),
-        discord.Game("beating Al-Jbali"),
-        discord.Game("thinking about memes"),
-        discord.Game("running AI calculations"),
-        discord.Game("watching the chaos unfold"),
-    ]
-    chosen_status = random.choice(status_themes)
-    await bot.change_presence(activity=chosen_status)
-    print(f"Bot is online and logged in as {bot.user.name}")
+    print(f"Bot is online as {bot.user.name}")
+    check_inactive_sessions.start()
 
-# Run the bot
-bot.run("MTIxOTU3NjIwNjgxOTg1MjI5OA.GBNxwc.cpppEOGn-rWQEG7Hc0nylsvQ7ROlOcIs2VFbcI")
+# =======================
+# Run the Bot
+# =======================
+
+if BOT_TOKEN:
+    bot.run(BOT_TOKEN)
+else:
+    print("Error: Bot token is missing. Set it as an environment variable.")
